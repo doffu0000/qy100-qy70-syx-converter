@@ -4,84 +4,112 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>QY100 / QY70 SysEx Converter</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
   :root {
-    --bg: #14161c;
-    --panel: #1c1f28;
-    --panel-border: #2c3040;
-    --text: #e8e9ee;
-    --muted: #9aa0b0;
-    --accent: #3a86ff;
-    --accent2: #ff006e;
+    --bg: #ffffff;
+    --panel: #ffffff;
+    --panel-border: #e1e4e8;
+    --row-bg: #f6f7f8;
+    --text: #30373e;
+    --heading: #23282d;
+    --muted: #6b7280;
+    --navy: #475260;
+    --accent: #ff5733;
     --ok: #2ec4b6;
-    --warn: #ffb703;
   }
   * { box-sizing: border-box; }
   body {
     margin: 0;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-family: "Sora", Helvetica, Arial, sans-serif;
     background: var(--bg);
     color: var(--text);
-    padding: 2rem 1rem 4rem;
   }
-  .wrap { max-width: 760px; margin: 0 auto; }
-  h1 {
-    font-size: 1.6rem;
-    margin-bottom: 0.25rem;
-    background: linear-gradient(90deg, var(--accent), var(--accent2));
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
+  #brand-bar {
+    height: 5px;
+    background: linear-gradient(90deg, #ff5733, #ffc300, #33ff57, #33a1ff, #8a33ff, #ff33a8);
   }
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 1rem 1.5rem;
+    border-bottom: 0.8px solid var(--panel-border);
+    flex-wrap: wrap;
+  }
+  header h1 {
+    margin: 0;
+    font-size: 1.3rem;
+    font-weight: 600;
+    color: var(--heading);
+  }
+  #site-logo-link {
+    display: inline-flex;
+    align-items: center;
+    flex-shrink: 0;
+  }
+  #site-logo {
+    height: 42px;
+    width: auto;
+  }
+  .wrap { max-width: 780px; margin: 0 auto; padding: 2rem 1.5rem 4rem; }
   p.sub { color: var(--muted); margin-top: 0; margin-bottom: 2rem; font-size: 0.95rem; }
   .panels { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; }
-  @media (max-width: 640px) { .panels { grid-template-columns: 1fr; } }
+  @media (max-width: 640px) {
+    .panels { grid-template-columns: 1fr; }
+    header { justify-content: center; text-align: center; }
+  }
   .panel {
     background: var(--panel);
     border: 1px solid var(--panel-border);
-    border-radius: 12px;
+    border-radius: 8px;
     padding: 1.25rem;
     display: flex;
     flex-direction: column;
     gap: 0.85rem;
   }
-  .panel h2 { margin: 0; font-size: 1.05rem; }
+  .panel h2 { margin: 0; font-size: 1.05rem; color: var(--heading); font-weight: 600; }
   .panel h2 .arrow { color: var(--muted); margin: 0 0.35rem; }
   .dropzone {
-    border: 2px dashed var(--panel-border);
-    border-radius: 10px;
+    border: 1.6px dashed var(--panel-border);
+    border-radius: 6px;
     padding: 1.5rem 1rem;
     text-align: center;
     cursor: pointer;
     transition: border-color 0.15s, background 0.15s;
     color: var(--muted);
     font-size: 0.9rem;
+    background: var(--row-bg);
   }
   .dropzone:hover, .dropzone.dragover {
-    border-color: var(--accent);
-    background: rgba(58, 134, 255, 0.06);
+    border-color: var(--navy);
+    background: #eef0f2;
     color: var(--text);
   }
   .dropzone input { display: none; }
   .status { font-size: 0.85rem; min-height: 1.2em; }
   .status.ok { color: var(--ok); }
-  .status.err { color: var(--accent2); }
+  .status.err { color: var(--accent); }
   .status.info { color: var(--muted); }
   button.dl {
-    background: var(--ok);
-    color: #06231f;
+    background: var(--navy);
+    color: #fff;
     border: none;
-    border-radius: 8px;
+    border-radius: 5px;
     padding: 0.6rem 1rem;
-    font-weight: 600;
+    font-family: inherit;
+    font-weight: 500;
     cursor: pointer;
     font-size: 0.9rem;
   }
-  button.dl:hover { filter: brightness(1.08); }
+  button.dl:hover { filter: brightness(1.1); }
   button.dl:disabled { opacity: 0.4; cursor: not-allowed; }
   footer { margin-top: 2.5rem; color: var(--muted); font-size: 0.8rem; line-height: 1.5; }
   code {
-    background: #0e1016;
+    background: var(--row-bg);
     padding: 0.1rem 0.35rem;
     border-radius: 4px;
     font-size: 0.85em;
@@ -89,8 +117,15 @@
 </style>
 </head>
 <body>
-<div class="wrap">
+<div id="brand-bar"></div>
+<header>
   <h1>QY100 / QY70 SysEx Converter</h1>
+  <a id="site-logo-link" href="https://qy100.doffu.net/" target="_blank" rel="noopener">
+    <img id="site-logo" src="https://qy100.doffu.net/wp-content/uploads/2024/09/QY-Mounting-Banner.png" alt="QY100 Explorer">
+  </a>
+</header>
+
+<div class="wrap">
   <p class="sub">Converts Bulk Dump SysEx (.syx) files between the Yamaha QY100 and QY70. Runs entirely in your browser &mdash; files never leave your device.</p>
 
   <div class="panels">
