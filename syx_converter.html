@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>QY100 / QY70 SysEx Converter</title>
+<style>
+  :root {
+    --bg: #14161c;
+    --panel: #1c1f28;
+    --panel-border: #2c3040;
+    --text: #e8e9ee;
+    --muted: #9aa0b0;
+    --accent: #3a86ff;
+    --accent2: #ff006e;
+    --ok: #2ec4b6;
+    --warn: #ffb703;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    padding: 2rem 1rem 4rem;
+  }
+  .wrap { max-width: 760px; margin: 0 auto; }
+  h1 {
+    font-size: 1.6rem;
+    margin-bottom: 0.25rem;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  p.sub { color: var(--muted); margin-top: 0; margin-bottom: 2rem; font-size: 0.95rem; }
+  .panels { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; }
+  @media (max-width: 640px) { .panels { grid-template-columns: 1fr; } }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 12px;
+    padding: 1.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.85rem;
+  }
+  .panel h2 { margin: 0; font-size: 1.05rem; }
+  .panel h2 .arrow { color: var(--muted); margin: 0 0.35rem; }
+  .dropzone {
+    border: 2px dashed var(--panel-border);
+    border-radius: 10px;
+    padding: 1.5rem 1rem;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+    color: var(--muted);
+    font-size: 0.9rem;
+  }
+  .dropzone:hover, .dropzone.dragover {
+    border-color: var(--accent);
+    background: rgba(58, 134, 255, 0.06);
+    color: var(--text);
+  }
+  .dropzone input { display: none; }
+  .status { font-size: 0.85rem; min-height: 1.2em; }
+  .status.ok { color: var(--ok); }
+  .status.err { color: var(--accent2); }
+  .status.info { color: var(--muted); }
+  button.dl {
+    background: var(--ok);
+    color: #06231f;
+    border: none;
+    border-radius: 8px;
+    padding: 0.6rem 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    font-size: 0.9rem;
+  }
+  button.dl:hover { filter: brightness(1.08); }
+  button.dl:disabled { opacity: 0.4; cursor: not-allowed; }
+  footer { margin-top: 2.5rem; color: var(--muted); font-size: 0.8rem; line-height: 1.5; }
+  code {
+    background: #0e1016;
+    padding: 0.1rem 0.35rem;
+    border-radius: 4px;
+    font-size: 0.85em;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>QY100 / QY70 SysEx Converter</h1>
+  <p class="sub">Converts Bulk Dump SysEx (.syx) files between the Yamaha QY100 and QY70. Runs entirely in your browser &mdash; files never leave your device.</p>
+
+  <div class="panels">
+    <div class="panel" id="panel-100to70">
+      <h2>QY100 <span class="arrow">&rarr;</span> QY70</h2>
+      <label class="dropzone" for="file-100to70">
+        Drop a .syx file here<br>or click to choose
+        <input type="file" id="file-100to70" accept=".syx">
+      </label>
+      <div class="status info" id="status-100to70">No file loaded.</div>
+      <button class="dl" id="dl-100to70" disabled>Download converted file</button>
+    </div>
+
+    <div class="panel" id="panel-70to100">
+      <h2>QY70 <span class="arrow">&rarr;</span> QY100</h2>
+      <label class="dropzone" for="file-70to100">
+        Drop a .syx file here<br>or click to choose
+        <input type="file" id="file-70to100" accept=".syx">
+      </label>
+      <div class="status info" id="status-70to100">No file loaded.</div>
+      <button class="dl" id="dl-70to100" disabled>Download converted file</button>
+    </div>
+  </div>
+
+  <footer>
+    Pattern (<code>tr</code> type <code>2</code>) and song (<code>tr</code> type <code>1</code>) Bulk Dump SEQ Data
+    blocks are converted; anything else in the file is ignored. Checksums are recomputed
+    per Yamaha's two's-complement convention, verified against real QY100 hardware.
+  </footer>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  const P_QY100 = 1, P_QY70 = 0;
+
+  function splitSysex(bytes) {
+    const out = [];
+    let i = 0;
+    while (true) {
+      const s = bytes.indexOf(0xF0, i);
+      if (s === -1) break;
+      const e = bytes.indexOf(0xF7, s);
+      if (e === -1) break;
+      out.push(bytes.slice(s, e + 1));
+      i = e + 1;
+    }
+    return out;
+  }
+
+  function checksum(payload) {
+    let sum = 0;
+    for (let i = 0; i < payload.length; i++) sum += payload[i];
+    return (-sum) & 0x7F;
+  }
+
+  function isSeqBulk(m, p) {
+    const type = m[6] & 0x0F;
+    return m.length >= 9 && m[0] === 0xF0 && m[1] === 0x43 &&
+           m[3] === 0x5F && m[4] === 0x01 &&
+           (m[6] >> 4) === p && (type === 1 || type === 2);
+  }
+
+  function bulkMode(p, on) {
+    return new Uint8Array([0xF0, 0x43, 0x10, 0x5F, p << 4, 0x00, 0x00, on ? 1 : 0, 0xF7]);
+  }
+
+  function convert(raw, srcP, destP) {
+    const msgs = splitSysex(raw);
+    const chunks = [bulkMode(destP, true)];
+    let convertedAny = false;
+
+    for (const m of msgs) {
+      if (!isSeqBulk(m, srcP)) continue;
+      const newMsg = new Uint8Array(m);
+      newMsg[6] = (destP << 4) | (m[6] & 0x0F);
+      const payload = newMsg.slice(4, newMsg.length - 2);
+      newMsg[newMsg.length - 2] = checksum(payload);
+      chunks.push(newMsg);
+      convertedAny = true;
+    }
+
+    chunks.push(bulkMode(destP, false));
+    if (!convertedAny) return null;
+
+    const total = chunks.reduce((n, c) => n + c.length, 0);
+    const out = new Uint8Array(total);
+    let off = 0;
+    for (const c of chunks) { out.set(c, off); off += c.length; }
+    return out;
+  }
+
+  function outName(inputName, fromSuffix, toSuffix) {
+    const dot = inputName.lastIndexOf(".");
+    const stem = dot === -1 ? inputName : inputName.slice(0, dot);
+    const outStem = stem.includes(fromSuffix)
+      ? stem.split(fromSuffix).join(toSuffix)
+      : stem + toSuffix;
+    return outStem + ".syx";
+  }
+
+  function setupPanel(opts) {
+    const fileInput = document.getElementById(opts.fileId);
+    const dropzone = fileInput.closest(".dropzone");
+    const statusEl = document.getElementById(opts.statusId);
+    const dlBtn = document.getElementById(opts.dlId);
+
+    let convertedBlob = null;
+    let convertedName = null;
+
+    function setStatus(text, kind) {
+      statusEl.textContent = text;
+      statusEl.className = "status " + (kind || "info");
+    }
+
+    function handleFile(file) {
+      dlBtn.disabled = true;
+      convertedBlob = null;
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = function () {
+        const raw = new Uint8Array(reader.result);
+        const result = convert(raw, opts.srcP, opts.destP);
+        if (result === null) {
+          setStatus("No convertible bulk messages found in " + file.name + ".", "err");
+          return;
+        }
+        convertedBlob = new Blob([result], { type: "application/octet-stream" });
+        convertedName = outName(file.name, opts.fromSuffix, opts.toSuffix);
+        setStatus("Converted " + file.name + " → " + convertedName, "ok");
+        dlBtn.disabled = false;
+      };
+      reader.onerror = function () {
+        setStatus("Could not read " + file.name + ".", "err");
+      };
+      reader.readAsArrayBuffer(file);
+    }
+
+    fileInput.addEventListener("change", function () {
+      handleFile(fileInput.files[0]);
+    });
+
+    dropzone.addEventListener("dragover", function (e) {
+      e.preventDefault();
+      dropzone.classList.add("dragover");
+    });
+    dropzone.addEventListener("dragleave", function () {
+      dropzone.classList.remove("dragover");
+    });
+    dropzone.addEventListener("drop", function (e) {
+      e.preventDefault();
+      dropzone.classList.remove("dragover");
+      const file = e.dataTransfer.files[0];
+      if (file) handleFile(file);
+    });
+
+    dlBtn.addEventListener("click", function () {
+      if (!convertedBlob) return;
+      const url = URL.createObjectURL(convertedBlob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = convertedName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    });
+  }
+
+  setupPanel({
+    fileId: "file-100to70", statusId: "status-100to70", dlId: "dl-100to70",
+    srcP: P_QY100, destP: P_QY70, fromSuffix: "_QY100", toSuffix: "_QY70"
+  });
+  setupPanel({
+    fileId: "file-70to100", statusId: "status-70to100", dlId: "dl-70to100",
+    srcP: P_QY70, destP: P_QY100, fromSuffix: "_QY70", toSuffix: "_QY100"
+  });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+
+# Working folders (per-user SysEx files, not part of the tool itself)
+Converted Files/
+QY100 SYX To Be Converted/
+QY70 SYX To Be Converted/
