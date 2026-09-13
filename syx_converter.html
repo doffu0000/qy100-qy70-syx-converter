@@ -148,12 +148,40 @@
       <div class="status info" id="status-70to100">No file loaded.</div>
       <button class="dl" id="dl-70to100" disabled>Download converted file</button>
     </div>
+
+    <div class="panel" id="panel-q1toSyx">
+      <h2>QY100 Disk <span class="arrow">&rarr;</span> SysEx</h2>
+      <label class="dropzone" for="file-q1toSyx">
+        Drop a .Q1P (style) or .Q1S (song) file here<br>or click to choose
+        <input type="file" id="file-q1toSyx" accept=".Q1P,.Q1S,.q1p,.q1s">
+      </label>
+      <div class="status info" id="status-q1toSyx">No file loaded.</div>
+      <button class="dl" id="dl-q1toSyx-100" disabled>Download QY100 .syx</button>
+      <button class="dl" id="dl-q1toSyx-70" disabled>Download QY70 .syx</button>
+    </div>
+
+    <div class="panel" id="panel-syxToQ1">
+      <h2>SysEx <span class="arrow">&rarr;</span> QY100 Disk</h2>
+      <label class="dropzone" for="file-syxToQ1">
+        Drop a QY100-format .syx file here<br>or click to choose
+        <input type="file" id="file-syxToQ1" accept=".syx">
+      </label>
+      <div class="status info" id="status-syxToQ1">No file loaded.</div>
+      <button class="dl" id="dl-syxToQ1" disabled>Download converted file</button>
+    </div>
   </div>
 
   <footer>
     Pattern (<code>tr</code> type <code>2</code>) and song (<code>tr</code> type <code>1</code>) Bulk Dump SEQ Data
     blocks are converted; anything else in the file is ignored. Checksums are recomputed
     per Yamaha's two's-complement convention, verified against real QY100 hardware.
+    <br><br>
+    .Q1P/.Q1S are the QY100's own SmartMedia disk format for styles and songs &mdash; the QY70 has
+    no disk drive, so these are QY100-only. Reverse engineered from paired disk/SysEx dumps of
+    the same styles and songs; two minor header fields that don't affect playback (an unidentified
+    byte, and the padding convention past a track's actual end) are approximated rather than
+    guaranteed byte-exact. Worth double-checking a converted disk file loads correctly on real
+    hardware before relying on it.
   </footer>
 </div>
 
@@ -305,6 +333,245 @@
     fileId: "file-70to100", statusId: "status-70to100", dlId: "dl-70to100",
     srcP: P_QY70, destP: P_QY100, fromSuffix: "_QY70", toSuffix: "_QY100"
   });
+
+  // ---- .Q1P / .Q1S (QY100 disk format) <-> SysEx ----------------------
+  //
+  // See SYX_Converter.py for the full writeup of this format. Summary: a
+  // fixed 128-byte header (signature + a per-track block-count table) is
+  // followed by every SEQ Data block's payload with the wire's 7-bit
+  // packing undone, concatenated in ascending track-address order.
+
+  const BLOCK_BYTES = 147, UNPACKED_BYTES = 128, HEADER_SIZE = 128, HEADER_TR = 0x7F, EDIT_BUFFER_AM = 0x7E;
+
+  function rangeArr(a, b) { const out = []; for (let i = a; i < b; i++) out.push(i); return out; }
+
+  const KINDS = {
+    pattern: { sig: "YQ1PAT", typeNibble: 2, tableStart: 18, tracks: rangeArr(0, 47), headerBlocks: 5, ext: ".Q1P" },
+    song:    { sig: "YQ1SNG", typeNibble: 1, tableStart: 32, tracks: rangeArr(0, 16).concat([0x19, 0x1A, 0x1B]), headerBlocks: 6, ext: ".Q1S" }
+  };
+
+  function unpackBlock(payload) {
+    const bits = [];
+    for (const b of payload) for (let k = 6; k >= 0; k--) bits.push((b >> k) & 1);
+    const n = Math.floor(bits.length / 8) * 8;
+    const out = new Uint8Array(n / 8);
+    for (let i = 0; i < n; i += 8) {
+      let v = 0;
+      for (let k = 0; k < 8; k++) v = (v << 1) | bits[i + k];
+      out[i / 8] = v;
+    }
+    return out;
+  }
+
+  function packBlock(data, size) {
+    size = size || BLOCK_BYTES;
+    const bits = [];
+    for (const b of data) for (let k = 7; k >= 0; k--) bits.push((b >> k) & 1);
+    while (bits.length < size * 7) bits.push(0);
+    const out = new Uint8Array(size);
+    for (let i = 0; i < size * 7; i += 7) {
+      let v = 0;
+      for (let k = 0; k < 7; k++) v = (v << 1) | bits[i + k];
+      out[i / 7] = v;
+    }
+    return out;
+  }
+
+  function detectQ1Kind(bytes) {
+    const sig = new TextDecoder("ascii").decode(bytes.slice(0, 6));
+    for (const name in KINDS) if (KINDS[name].sig === sig) return name;
+    return null;
+  }
+
+  function concatBytes(arrays) {
+    const total = arrays.reduce((n, a) => n + a.length, 0);
+    const out = new Uint8Array(total);
+    let off = 0;
+    for (const a of arrays) { out.set(a, off); off += a.length; }
+    return out;
+  }
+
+  function q1ToSyx(data) {
+    const kind = detectQ1Kind(data);
+    if (!kind) return { error: "not a recognized .Q1P/.Q1S file" };
+    const k = KINDS[kind];
+    const header = data.slice(0, HEADER_SIZE);
+    const body = data.slice(HEADER_SIZE);
+
+    const order = [];
+    k.tracks.forEach(function (tr, slot) {
+      const off = k.tableStart + 2 * slot;
+      const count = (header[off] << 8) | header[off + 1];
+      if (count) order.push([tr, count]);
+    });
+    order.push([HEADER_TR, k.headerBlocks]);
+
+    const chunks = [bulkMode(P_QY100, true)];
+    let pos = 0;
+    for (const [tr, count] of order) {
+      for (let i = 0; i < count; i++) {
+        const chunk = body.slice(pos, pos + UNPACKED_BYTES);
+        pos += UNPACKED_BYTES;
+        const msg = new Uint8Array(9 + BLOCK_BYTES + 2);
+        msg.set([0xF0, 0x43, 0x00, 0x5F, 0x01, 0x13, (P_QY100 << 4) | k.typeNibble, EDIT_BUFFER_AM, tr], 0);
+        msg.set(packBlock(chunk), 9);
+        msg[msg.length - 2] = checksum(msg.slice(4, msg.length - 2));
+        msg[msg.length - 1] = 0xF7;
+        chunks.push(msg);
+      }
+    }
+    chunks.push(bulkMode(P_QY100, false));
+    return { kind: kind, bytes: concatBytes(chunks) };
+  }
+
+  function syxToQ1(raw, kind) {
+    const k = KINDS[kind];
+    const byTrack = new Map();
+    for (const m of splitSysex(raw)) {
+      if (!isSeqBulk(m, P_QY100) || (m[6] & 0x0F) !== k.typeNibble) continue;
+      const tr = m[8];
+      if (!byTrack.has(tr)) byTrack.set(tr, []);
+      byTrack.get(tr).push(m.slice(9, m.length - 2));
+    }
+    if (byTrack.size === 0) return null;
+
+    const header = new Uint8Array(HEADER_SIZE);
+    const sigBytes = new TextEncoder().encode(k.sig + "     V1.00"); // sig(6) + 5 spaces + "V1.00"(5) = 16
+    header.set(sigBytes, 0);
+    if (kind === "pattern") {
+      header.set([0x00, 0x00, 0x02, 0x22], 112);
+    } else {
+      header.set([0x02, 0x8E], 72);
+    }
+
+    const bodyParts = [];
+    k.tracks.forEach(function (tr, slot) {
+      const blocks = byTrack.get(tr) || [];
+      const off = k.tableStart + 2 * slot;
+      header[off] = (blocks.length >> 8) & 0xFF;
+      header[off + 1] = blocks.length & 0xFF;
+      for (const payload of blocks) bodyParts.push(unpackBlock(payload));
+    });
+    for (const payload of (byTrack.get(HEADER_TR) || [])) bodyParts.push(unpackBlock(payload));
+
+    return concatBytes([header].concat(bodyParts));
+  }
+
+  // ---- Panel: Q1P/Q1S -> SysEx ----
+  (function () {
+    const fileInput = document.getElementById("file-q1toSyx");
+    const dropzone = fileInput.closest(".dropzone");
+    const statusEl = document.getElementById("status-q1toSyx");
+    const dl100 = document.getElementById("dl-q1toSyx-100");
+    const dl70 = document.getElementById("dl-q1toSyx-70");
+    let blob100 = null, blob70 = null, stem = null;
+
+    function setStatus(text, kind) {
+      statusEl.textContent = text;
+      statusEl.className = "status " + (kind || "info");
+    }
+
+    function handleFile(file) {
+      dl100.disabled = true; dl70.disabled = true;
+      blob100 = blob70 = null;
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = function () {
+        const raw = new Uint8Array(reader.result);
+        const result = q1ToSyx(raw);
+        if (result.error) { setStatus(result.error + " (" + file.name + ").", "err"); return; }
+        const qy100Bytes = result.bytes;
+        const qy70Bytes = convert(qy100Bytes, P_QY100, P_QY70);
+        const dot = file.name.lastIndexOf(".");
+        stem = dot === -1 ? file.name : file.name.slice(0, dot);
+        blob100 = new Blob([qy100Bytes], { type: "application/octet-stream" });
+        blob70 = qy70Bytes ? new Blob([qy70Bytes], { type: "application/octet-stream" }) : null;
+        setStatus("Converted " + file.name + " (" + result.kind + ") → " + stem + "_QY100.syx / _QY70.syx", "ok");
+        dl100.disabled = false;
+        dl70.disabled = !blob70;
+      };
+      reader.onerror = function () { setStatus("Could not read " + file.name + ".", "err"); };
+      reader.readAsArrayBuffer(file);
+    }
+
+    function download(blob, name) {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = name;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+
+    fileInput.addEventListener("change", function () { handleFile(fileInput.files[0]); });
+    dropzone.addEventListener("dragover", function (e) { e.preventDefault(); dropzone.classList.add("dragover"); });
+    dropzone.addEventListener("dragleave", function () { dropzone.classList.remove("dragover"); });
+    dropzone.addEventListener("drop", function (e) {
+      e.preventDefault(); dropzone.classList.remove("dragover");
+      const file = e.dataTransfer.files[0];
+      if (file) handleFile(file);
+    });
+    dl100.addEventListener("click", function () { if (blob100) download(blob100, stem + "_QY100.syx"); });
+    dl70.addEventListener("click", function () { if (blob70) download(blob70, stem + "_QY70.syx"); });
+  })();
+
+  // ---- Panel: SysEx -> Q1P/Q1S ----
+  (function () {
+    const fileInput = document.getElementById("file-syxToQ1");
+    const dropzone = fileInput.closest(".dropzone");
+    const statusEl = document.getElementById("status-syxToQ1");
+    const dlBtn = document.getElementById("dl-syxToQ1");
+    let convertedBlob = null, convertedName = null;
+
+    function setStatus(text, kind) {
+      statusEl.textContent = text;
+      statusEl.className = "status " + (kind || "info");
+    }
+
+    function handleFile(file) {
+      dlBtn.disabled = true;
+      convertedBlob = null;
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = function () {
+        const raw = new Uint8Array(reader.result);
+        let result = null, kind = null;
+        for (const k of ["pattern", "song"]) {
+          const r = syxToQ1(raw, k);
+          if (r) { result = r; kind = k; break; }
+        }
+        if (!result) {
+          setStatus("No QY100 pattern or song bulk-dump blocks found in " + file.name + ".", "err");
+          return;
+        }
+        const dot = file.name.lastIndexOf(".");
+        const stem = dot === -1 ? file.name : file.name.slice(0, dot);
+        const cleanStem = stem.replace(/_QY100$/i, "");
+        convertedName = cleanStem + KINDS[kind].ext;
+        convertedBlob = new Blob([result], { type: "application/octet-stream" });
+        setStatus("Converted " + file.name + " (" + kind + ") → " + convertedName, "ok");
+        dlBtn.disabled = false;
+      };
+      reader.onerror = function () { setStatus("Could not read " + file.name + ".", "err"); };
+      reader.readAsArrayBuffer(file);
+    }
+
+    fileInput.addEventListener("change", function () { handleFile(fileInput.files[0]); });
+    dropzone.addEventListener("dragover", function (e) { e.preventDefault(); dropzone.classList.add("dragover"); });
+    dropzone.addEventListener("dragleave", function () { dropzone.classList.remove("dragover"); });
+    dropzone.addEventListener("drop", function (e) {
+      e.preventDefault(); dropzone.classList.remove("dragover");
+      const file = e.dataTransfer.files[0];
+      if (file) handleFile(file);
+    });
+    dlBtn.addEventListener("click", function () {
+      if (!convertedBlob) return;
+      const url = URL.createObjectURL(convertedBlob);
+      const a = document.createElement("a");
+      a.href = url; a.download = convertedName;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    });
+  })();
 })();
 </script>
 </body>
