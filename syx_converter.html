@@ -107,22 +107,15 @@
   }
   button.dl:hover { filter: brightness(1.1); }
   button.dl:disabled { opacity: 0.4; cursor: not-allowed; }
-  footer { margin-top: 2.5rem; color: var(--muted); font-size: 0.8rem; line-height: 1.5; }
-  code {
-    background: var(--row-bg);
-    padding: 0.1rem 0.35rem;
-    border-radius: 4px;
-    font-size: 0.85em;
-  }
 </style>
 </head>
 <body>
 <div id="brand-bar"></div>
 <header>
-  <h1>QY100 / QY70 SysEx Converter</h1>
   <a id="site-logo-link" href="https://qy100.doffu.net/" target="_blank" rel="noopener">
     <img id="site-logo" src="https://qy100.doffu.net/wp-content/uploads/2024/09/QY-Mounting-Banner.png" alt="QY100 Explorer">
   </a>
+  <h1>QY100 / QY70 SysEx Converter</h1>
 </header>
 
 <div class="wrap">
@@ -170,19 +163,6 @@
       <button class="dl" id="dl-syxToQ1" disabled>Download converted file</button>
     </div>
   </div>
-
-  <footer>
-    Pattern (<code>tr</code> type <code>2</code>) and song (<code>tr</code> type <code>1</code>) Bulk Dump SEQ Data
-    blocks are converted; anything else in the file is ignored. Checksums are recomputed
-    per Yamaha's two's-complement convention, verified against real QY100 hardware.
-    <br><br>
-    .Q1P/.Q1S are the QY100's own SmartMedia disk format for styles and songs &mdash; the QY70 has
-    no disk drive, so these are QY100-only. Reverse engineered from paired disk/SysEx dumps of
-    the same styles and songs; two minor header fields that don't affect playback (an unidentified
-    byte, and the padding convention past a track's actual end) are approximated rather than
-    guaranteed byte-exact. Worth double-checking a converted disk file loads correctly on real
-    hardware before relying on it.
-  </footer>
 </div>
 
 <script>
