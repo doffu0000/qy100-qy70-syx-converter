@@ -46,6 +46,11 @@
     font-weight: 600;
     color: var(--heading);
   }
+  #header-brand {
+    display: flex;
+    align-items: center;
+    gap: 0.85rem;
+  }
   #site-logo-link {
     display: inline-flex;
     align-items: center;
@@ -55,6 +60,45 @@
     height: 42px;
     width: auto;
   }
+  #support-btn {
+    background: var(--navy);
+    color: #fff;
+    border: none;
+    border-radius: 5px;
+    padding: 0.6rem 1.1rem;
+    font-family: inherit;
+    font-weight: 500;
+    font-size: 0.9rem;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  #support-btn:hover { filter: brightness(1.1); }
+  #support-dialog {
+    max-width: 34rem;
+    width: calc(100% - 2rem);
+    border: 1px solid var(--panel-border);
+    border-radius: 10px;
+    padding: 1.25rem;
+    color: var(--text);
+    font-family: inherit;
+  }
+  #support-dialog::backdrop { background: rgba(35, 40, 45, 0.5); }
+  #support-dialog h3 { margin: 0 0 0.75rem; color: var(--heading); font-size: 1.15rem; }
+  #support-dialog p { line-height: 1.5; font-size: 0.92rem; }
+  #support-dialog img { border-radius: 8px; margin: 0.5rem 0 1rem; }
+  #support-dialog .dialog-actions { display: flex; justify-content: flex-end; gap: 0.6rem; margin-top: 0.5rem; }
+  #support-dialog button {
+    border: none;
+    border-radius: 5px;
+    padding: 0.5rem 0.9rem;
+    font-family: inherit;
+    font-weight: 500;
+    font-size: 0.88rem;
+    cursor: pointer;
+  }
+  #support-cancel { background: var(--navy); color: #fff; }
+  #support-join { background: var(--accent); color: #fff; }
+  #support-dialog button:hover { filter: brightness(1.1); }
   .wrap { max-width: 780px; margin: 0 auto; padding: 2rem 1.5rem 4rem; }
   p.sub { color: var(--muted); margin-top: 0; margin-bottom: 2rem; font-size: 0.95rem; }
   .panels { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; }
@@ -112,11 +156,25 @@
 <body>
 <div id="brand-bar"></div>
 <header>
-  <a id="site-logo-link" href="https://qy100.doffu.net/" target="_blank" rel="noopener">
-    <img id="site-logo" src="https://qy100.doffu.net/wp-content/uploads/2024/09/QY-Mounting-Banner.png" alt="QY100 Explorer">
-  </a>
-  <h1>QY100 / QY70 SysEx Converter</h1>
+  <div id="header-brand">
+    <a id="site-logo-link" href="https://qy100.doffu.net/" target="_blank" rel="noopener">
+      <img id="site-logo" src="https://qy100.doffu.net/wp-content/uploads/2024/09/QY-Mounting-Banner.png" alt="QY100 Explorer">
+    </a>
+    <h1>QY100 / QY70 SysEx Converter</h1>
+  </div>
+  <button type="button" id="support-btn">Support Future Projects</button>
 </header>
+
+<dialog id="support-dialog">
+  <h3>Support Future Projects</h3>
+  <p>This SysEx converter, the QY70/QY100 protocol reverse-engineering behind it, and the other QY100 Explorer tools and files are all projects I develop and maintain on my own time.</p>
+  <p>If you've found this converter useful, becoming a Patreon supporter directly helps fund the hours that go into reverse-engineering more of the QY70 and QY100's hidden capabilities, creating new files and resources, and developing tools like this one.</p>
+  <img src="https://qy100.doffu.net/wp-content/uploads/2024/09/SM-Card-30.jpg" alt="A QY70/QY100 SmartMedia card loaded with custom style files" width="504">
+  <div class="dialog-actions">
+    <button type="button" id="support-cancel">Cancel</button>
+    <button type="button" id="support-join">Join the exploration</button>
+  </div>
+</dialog>
 
 <div class="wrap">
   <p class="sub">Converts Bulk Dump SysEx (.syx) files between the Yamaha QY100 and QY70. Runs entirely in your browser &mdash; files never leave your device.</p>
@@ -168,6 +226,17 @@
 <script>
 (function () {
   "use strict";
+
+  const supportDialog = document.getElementById("support-dialog");
+  document.getElementById("support-btn").addEventListener("click", function () {
+    supportDialog.showModal();
+  });
+  document.getElementById("support-cancel").addEventListener("click", function () {
+    supportDialog.close();
+  });
+  document.getElementById("support-join").addEventListener("click", function () {
+    window.open("https://www.patreon.com/doffu", "_blank", "noopener");
+  });
 
   const P_QY100 = 1, P_QY70 = 0;
 
