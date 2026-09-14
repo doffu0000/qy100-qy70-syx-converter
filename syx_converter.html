@@ -201,7 +201,7 @@
     </div>
 
     <div class="panel" id="panel-q1toSyx">
-      <h2>QY100 Disk <span class="arrow">&rarr;</span> SysEx</h2>
+      <h2>QY100 (.Q1P, .Q1S) <span class="arrow">&rarr;</span> SysEx</h2>
       <label class="dropzone" for="file-q1toSyx">
         Drop a .Q1P (style) or .Q1S (song) file here<br>or click to choose
         <input type="file" id="file-q1toSyx" accept=".Q1P,.Q1S,.q1p,.q1s">
@@ -212,9 +212,9 @@
     </div>
 
     <div class="panel" id="panel-syxToQ1">
-      <h2>SysEx <span class="arrow">&rarr;</span> QY100 Disk</h2>
+      <h2>SysEx <span class="arrow">&rarr;</span> QY100 (.Q1P or .Q1S)</h2>
       <label class="dropzone" for="file-syxToQ1">
-        Drop a QY100-format .syx file here<br>or click to choose
+        Drop a QY100 or QY70 .syx file here<br>or click to choose
         <input type="file" id="file-syxToQ1" accept=".syx">
       </label>
       <div class="status info" id="status-syxToQ1">No file loaded.</div>
@@ -613,11 +613,16 @@
       const reader = new FileReader();
       reader.onload = function () {
         const raw = new Uint8Array(reader.result);
+        // .Q1P/.Q1S only exist in QY100 form (the QY70 has no disk drive), so a
+        // QY70 dump needs bumping to QY100 addressing first; a QY100 dump is
+        // used as-is. Trying the QY70->QY100 upconvert and falling back to the
+        // raw bytes covers either input without the user needing to say which.
+        const qy100Raw = convert(raw, P_QY70, P_QY100) || raw;
         let result = null, kind = null;
         for (const k of ["pattern", "song"]) {
           let r;
           try {
-            r = syxToQ1(raw, k);
+            r = syxToQ1(qy100Raw, k);
           } catch (e) {
             setStatus(e.message, "err");
             return;
@@ -625,12 +630,12 @@
           if (r) { result = r; kind = k; break; }
         }
         if (!result) {
-          setStatus("No QY100 pattern or song bulk-dump blocks found in " + file.name + ".", "err");
+          setStatus("No QY100 or QY70 pattern/song bulk-dump blocks found in " + file.name + ".", "err");
           return;
         }
         const dot = file.name.lastIndexOf(".");
         const stem = dot === -1 ? file.name : file.name.slice(0, dot);
-        const cleanStem = stem.replace(/_QY100$/i, "");
+        const cleanStem = stem.replace(/_QY100$|_QY70$/i, "");
         convertedName = cleanStem + KINDS[kind].ext;
         convertedBlob = new Blob([result], { type: "application/octet-stream" });
         setStatus("Converted " + file.name + " (" + kind + ") → " + convertedName, "ok");
