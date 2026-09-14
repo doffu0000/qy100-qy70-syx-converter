@@ -396,7 +396,7 @@
 
   const KINDS = {
     pattern: { sig: "YQ1PAT", typeNibble: 2, tableStart: 18, tracks: rangeArr(0, 47), ext: ".Q1P" },
-    song:    { sig: "YQ1SNG", typeNibble: 1, tableStart: 32, tracks: rangeArr(0, 16).concat([0x19, 0x1A, 0x1B]), ext: ".Q1S" }
+    song:    { sig: "YQ1SNG", typeNibble: 1, tableStart: 32, tracks: rangeArr(0, 16).concat([0x19, 0x1A, 0x1B, 0x1C]), ext: ".Q1S" }
   };
 
   function unpackBlock(payload) {
@@ -491,6 +491,14 @@
       byTrack.get(tr).push(m.slice(9, m.length - 2));
     }
     if (byTrack.size === 0) return null;
+
+    const known = new Set(k.tracks.concat([HEADER_TR]));
+    const unknownTracks = Array.from(byTrack.keys()).filter(function (tr) { return !known.has(tr); });
+    if (unknownTracks.length) {
+      throw new Error(k.ext + " stream uses track address(es) " +
+        unknownTracks.map(function (t) { return "0x" + t.toString(16); }).join(", ") +
+        " that aren't in the known table -- converting would silently drop that data.");
+    }
 
     const header = new Uint8Array(HEADER_SIZE);
     const sigBytes = new TextEncoder().encode(k.sig + "     V1.00"); // sig(6) + 5 spaces + "V1.00"(5) = 16
@@ -607,7 +615,13 @@
         const raw = new Uint8Array(reader.result);
         let result = null, kind = null;
         for (const k of ["pattern", "song"]) {
-          const r = syxToQ1(raw, k);
+          let r;
+          try {
+            r = syxToQ1(raw, k);
+          } catch (e) {
+            setStatus(e.message, "err");
+            return;
+          }
           if (r) { result = r; kind = k; break; }
         }
         if (!result) {

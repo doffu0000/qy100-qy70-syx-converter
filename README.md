@@ -19,6 +19,8 @@ The QY70 has no disk drive, so `.Q1P`/`.Q1S` are QY100-only. Reverse engineered 
 
 That larger check caught a real bug: the pattern/song "header" block's own size isn't fixed at 5/6 blocks like the original reference files all happened to have. Real patterns range from 4 to 34 blocks, so it's now derived from each file's own size instead of assumed.
 
+A second bug turned up the same way, from a song that failed to convert correctly: it used a track address (`0x1C`) beyond the ones (`0x19`-`0x1B`) found in the original reference songs, so that track's data was being silently dropped instead of converted. Converting from SysEx now raises an error instead of silently dropping data if it ever sees a track address it doesn't recognize, so a gap like this surfaces immediately rather than producing a file that looks right until it's loaded onto the device.
+
 Two minor details don't affect playback and remain approximated: one unidentified pattern-header byte (no correlation found against header size or track count across the full local collection), and the padding convention past a track's real data ends (the disk format zero-fills; the wire format leaves whatever was in that memory region, usually a run of `0xFE`). For songs specifically, the disk file only ever uses the first 654 of the header track's 768 bytes, confirmed against all 3 reference songs, so that tail is now zero-filled on conversion rather than carrying over the wire dump's leftover bytes. The equivalent boundary for patterns isn't pinned down yet. Worth double-checking a converted disk file loads correctly on real hardware before relying on it.
 
 ## Using the Python script

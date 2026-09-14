@@ -111,6 +111,15 @@ def convert_qy70_to_qy100(raw: bytes) -> bytes | None:
 # for. That computation should never come out uneven -- if it does, the
 # file's table doesn't match its size and something is corrupt.
 #
+# The song track list has the same "looked complete until a bigger real
+# file showed up" history: a converted song failed on real hardware, and
+# it turned out the song used track 0x1C (one more special track past
+# Pt/Cd/0x1B), which wasn't in the list -- syx_to_q1 was silently dropping
+# that block. It now raises instead of dropping data silently if it ever
+# sees a track address outside the known list, so a gap like this shows
+# up immediately instead of producing a file that looks right until it's
+# loaded onto the device.
+#
 # Two things remain unidentified and are approximated rather than guessed
 # at outright: a mystery byte at header offset 16 (pattern files only, no
 # correlation found against header size or track count across the full
@@ -135,16 +144,21 @@ EDIT_BUFFER_AM = 0x7E  # aM used by the reference dumps -- the "current pattern/
 
 # Track address table: contiguous phrase/section tracks, then (for songs) the
 # handful of special tracks -- Pt (0x19, style/section arrangement) and Cd
-# (0x1A, chords) are named in qy100-toolkit's songfmt.py; 0x1B showed up in
-# every song reference sample but isn't identified there yet.
+# (0x1A, chords) are named in qy100-toolkit's songfmt.py; 0x1B and 0x1C
+# aren't identified there, but do show up in real songs (0x1C only turned
+# up once a large-enough song was tried -- it wasn't in any of the first
+# batch of reference songs). Both map into the header's block-count table
+# as slots 16+(tr-25), same as Pt/Cd; slot 20 (tr 29 in that scheme) is
+# NOT a track -- it's a fixed constant (0x028E) in every sample checked,
+# song content or not, so the special-track list stops at 0x1C.
 PATTERN_TRACKS = list(range(0, 47))
-SONG_TRACKS = list(range(0, 16)) + [0x19, 0x1A, 0x1B]
+SONG_TRACKS = list(range(0, 16)) + [0x19, 0x1A, 0x1B, 0x1C]
 
 KINDS = {
     "pattern": dict(sig=b"YQ1PAT", type_nibble=2, table_start=18,
-                     tracks=PATTERN_TRACKS, header_blocks=5, ext=".Q1P"),
+                     tracks=PATTERN_TRACKS, ext=".Q1P"),
     "song":    dict(sig=b"YQ1SNG", type_nibble=1, table_start=32,
-                     tracks=SONG_TRACKS, header_blocks=6, ext=".Q1S"),
+                     tracks=SONG_TRACKS, ext=".Q1S"),
 }
 
 
@@ -248,6 +262,16 @@ def syx_to_q1(raw: bytes, kind: str) -> bytes | None:
     if not by_track:
         return None
 
+    known = set(k["tracks"]) | {HEADER_TR}
+    unknown_tracks = sorted(tr for tr in by_track if tr not in known)
+    if unknown_tracks:
+        raise ValueError(
+            "%s stream uses track address(es) %s that aren't in the known "
+            "table -- converting would silently drop that data. This "
+            "happened once already (song track 0x1C wasn't in the original "
+            "list); if it's happening again, the track list in KINDS needs "
+            "another entry." % (k["ext"], [hex(t) for t in unknown_tracks]))
+
     header = bytearray(HEADER_SIZE)
     header[0:16] = (k["sig"] + b" " * (11 - len(k["sig"])) + b"V1.00")[:16]
     if kind == "pattern":
@@ -324,7 +348,11 @@ def process_folder(src_folder: Path, convert_fn, suffix_from: str, suffix_to: st
         qy100_raw = raw if suffix_from == "_QY100" else result
         base_stem = stem.replace(suffix_from, "") if suffix_from in stem else stem
         for kind, k in KINDS.items():
-            q1_bytes = syx_to_q1(qy100_raw, kind)
+            try:
+                q1_bytes = syx_to_q1(qy100_raw, kind)
+            except ValueError as e:
+                print(f"  [SKIP]  {src.name} → {k['ext']}  — {e}")
+                continue
             if q1_bytes is None:
                 continue
             q1_dst = OUT_DIR / (base_stem + k["ext"])
