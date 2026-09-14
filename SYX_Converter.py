@@ -91,19 +91,41 @@ def convert_qy70_to_qy100(raw: bytes) -> bytes | None:
 # the last packed byte are discarded -- this happens fresh per block, not
 # continuously across the file), concatenated in ascending track-address (aL)
 # order. The pattern/song "header" block (aL = 0x7F) always sorts last since
-# 0x7F is numerically the highest track address, and always contributes a
-# fixed number of blocks (5 for patterns, 6 for songs -- confirmed identical
-# across every sample regardless of content).
+# 0x7F is numerically the highest track address.
 #
 # The header's own bytes carry a per-track table -- how many SysEx blocks
 # each track occupies, which is what lets the flat body be split back into
 # per-track chunks. Verified exactly (block counts match to the byte) against
-# 4 pattern and 3 song reference pairs spanning 13-191 blocks. Two things
-# remain unidentified and are just copied/zeroed rather than guessed at:
-# a mystery byte at header offset 16 (pattern files only), and the exact
-# tail-padding convention after a track's real data ends (the disk file
-# zero-fills; the wire dump fills with 0xFE) -- neither affects the musical
-# content, only unused filler bytes past the real end-of-track marker.
+# 4 pattern and 3 song reference pairs spanning 13-191 blocks, and sanity
+# checked against every real .Q1P/.Q1S file on this machine (1952 patterns,
+# 8 songs): every one of them divides evenly into the table's blocks plus a
+# remainder for the 0x7F track, with zero exceptions.
+#
+# The 0x7F track's own size is NOT fixed. An earlier version of this file
+# assumed 5 blocks for patterns and 6 for songs because that's what all the
+# original reference pairs happened to have -- but checking the full local
+# collection found patterns ranging from 4 to 34 blocks (5 is just the most
+# common, at 72%) and at least one 7-block song. It isn't listed in the
+# table either, so q1_to_syx derives it from the file's own size: whatever
+# body bytes are left over after every named track's blocks are accounted
+# for. That computation should never come out uneven -- if it does, the
+# file's table doesn't match its size and something is corrupt.
+#
+# Two things remain unidentified and are approximated rather than guessed
+# at outright: a mystery byte at header offset 16 (pattern files only, no
+# correlation found against header size or track count across the full
+# local collection), and the padding convention past a track's real data
+# end (the disk file zero-fills; the wire dump leaves whatever was in that
+# RAM region, usually ending in a run of 0xFE). For the *song* header track
+# specifically, the disk file only ever uses the first 654 of its 768
+# bytes -- confirmed zero past that point in all 3 reference songs, with
+# the wire dump showing identical leftover bytes (including a literal
+# "04 B0" at the same offset) in two of them despite different content, so
+# syx_to_q1 zero-fills that tail rather than carrying the wire's garbage
+# into the disk file. The equivalent boundary for patterns isn't pinned
+# down yet (would need a fresh pattern + matching hardware dump to verify
+# the same way), so it's left untouched there. None of this affects the
+# musical content either way, only unused filler bytes.
 
 BLOCK_BYTES = 147
 UNPACKED_BYTES = 128
@@ -175,12 +197,25 @@ def q1_to_syx(data: bytes) -> tuple[bytes, str]:
     body = data[HEADER_SIZE:]
 
     order = []
+    named_blocks = 0
     for slot, tr in enumerate(k["tracks"]):
         off = k["table_start"] + 2 * slot
         count = (header[off] << 8) | header[off + 1]
         if count:
             order.append((tr, count))
-    order.append((HEADER_TR, k["header_blocks"]))
+            named_blocks += count
+
+    # The header/"cabecera" track (0x7F) isn't listed in the table -- its
+    # size isn't fixed (checked against 1952 real .Q1P files: ~72% have 5
+    # blocks, but sizes from 4 to 34 all occur; same story for .Q1S). It's
+    # always the remainder after every named track's blocks are accounted
+    # for, so derive it from the file's own size instead of assuming one.
+    remaining = len(body) - named_blocks * UNPACKED_BYTES
+    if remaining < 0 or remaining % UNPACKED_BYTES != 0:
+        raise ValueError("%s file size doesn't match its own block-count table "
+                          "(corrupt file?)" % k["ext"])
+    header_blocks = remaining // UNPACKED_BYTES
+    order.append((HEADER_TR, header_blocks))
 
     out = bytearray(_bulk_mode(P_QY100, True))
     pos = 0
@@ -229,8 +264,23 @@ def syx_to_q1(raw: bytes, kind: str) -> bytes | None:
         for payload in blocks:
             body += unpack_block(payload)
 
-    for payload in by_track.get(HEADER_TR, []):
+    header_payloads = by_track.get(HEADER_TR, [])
+    header_track_start = len(body)
+    for payload in header_payloads:
         body += unpack_block(payload)
+
+    # The song header track's real fields (tempo, name, arrangement info)
+    # only ever use the first 654 of its 768 bytes on disk -- verified
+    # zero past that point in all 3 reference songs (a standard 6-block
+    # header), while the wire dump carries whatever was left in that RAM
+    # region at capture time (padding bytes, then a stretch of 0xFE).
+    # Only the standard-size header is touched; anything else is left as
+    # captured rather than guessed at.
+    SONG_HEADER_REAL_LEN = 654
+    if kind == "song" and len(header_payloads) == 6:
+        tail_start = header_track_start + SONG_HEADER_REAL_LEN
+        for i in range(tail_start, len(body)):
+            body[i] = 0
 
     return bytes(header) + bytes(body)
 

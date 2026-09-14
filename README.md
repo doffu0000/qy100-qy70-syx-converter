@@ -15,9 +15,11 @@ Pattern (`tr` type `2`) and song (`tr` type `1`) Bulk Dump SEQ Data blocks are c
 
 ### Disk files: .Q1P / .Q1S <-> SysEx
 
-The QY70 has no disk drive, so `.Q1P`/`.Q1S` are QY100-only. Reverse engineered from paired disk/SysEx dumps of the same styles and songs: a fixed 128-byte header (signature plus a per-track block-count table) is followed by every SEQ Data block's payload with the wire format's 7-bit packing undone (147 bytes -> 128 bytes per block), concatenated in ascending track-address order. Verified against 4 pattern and 3 song reference pairs spanning 13-191 blocks, matching block-for-block.
+The QY70 has no disk drive, so `.Q1P`/`.Q1S` are QY100-only. Reverse engineered from paired disk/SysEx dumps of the same styles and songs: a fixed 128-byte header (signature plus a per-track block-count table) is followed by every SEQ Data block's payload with the wire format's 7-bit packing undone (147 bytes -> 128 bytes per block), concatenated in ascending track-address order. Verified against 4 pattern and 3 song reference pairs spanning 13-191 blocks, matching block-for-block, then sanity checked against every real `.Q1P`/`.Q1S` file on the machine that built this (1952 patterns, 8 songs) with zero exceptions.
 
-Two minor header details don't affect playback and are approximated rather than guaranteed byte-exact: one unidentified header byte, and the padding convention used past a track's actual end (the disk format zero-fills; the wire format fills with `0xFE`). Worth double-checking a converted disk file loads correctly on real hardware before relying on it.
+That larger check caught a real bug: the pattern/song "header" block's own size isn't fixed at 5/6 blocks like the original reference files all happened to have. Real patterns range from 4 to 34 blocks, so it's now derived from each file's own size instead of assumed.
+
+Two minor details don't affect playback and remain approximated: one unidentified pattern-header byte (no correlation found against header size or track count across the full local collection), and the padding convention past a track's real data ends (the disk format zero-fills; the wire format leaves whatever was in that memory region, usually a run of `0xFE`). For songs specifically, the disk file only ever uses the first 654 of the header track's 768 bytes, confirmed against all 3 reference songs, so that tail is now zero-filled on conversion rather than carrying over the wire dump's leftover bytes. The equivalent boundary for patterns isn't pinned down yet. Worth double-checking a converted disk file loads correctly on real hardware before relying on it.
 
 ## Using the Python script
 

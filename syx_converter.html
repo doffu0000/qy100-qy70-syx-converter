@@ -395,8 +395,8 @@
   function rangeArr(a, b) { const out = []; for (let i = a; i < b; i++) out.push(i); return out; }
 
   const KINDS = {
-    pattern: { sig: "YQ1PAT", typeNibble: 2, tableStart: 18, tracks: rangeArr(0, 47), headerBlocks: 5, ext: ".Q1P" },
-    song:    { sig: "YQ1SNG", typeNibble: 1, tableStart: 32, tracks: rangeArr(0, 16).concat([0x19, 0x1A, 0x1B]), headerBlocks: 6, ext: ".Q1S" }
+    pattern: { sig: "YQ1PAT", typeNibble: 2, tableStart: 18, tracks: rangeArr(0, 47), ext: ".Q1P" },
+    song:    { sig: "YQ1SNG", typeNibble: 1, tableStart: 32, tracks: rangeArr(0, 16).concat([0x19, 0x1A, 0x1B]), ext: ".Q1S" }
   };
 
   function unpackBlock(payload) {
@@ -448,12 +448,20 @@
     const body = data.slice(HEADER_SIZE);
 
     const order = [];
+    let namedBlocks = 0;
     k.tracks.forEach(function (tr, slot) {
       const off = k.tableStart + 2 * slot;
       const count = (header[off] << 8) | header[off + 1];
-      if (count) order.push([tr, count]);
+      if (count) { order.push([tr, count]); namedBlocks += count; }
     });
-    order.push([HEADER_TR, k.headerBlocks]);
+    // The 0x7F header track's size isn't fixed or listed in the table (see
+    // SYX_Converter.py for the full writeup) -- derive it from whatever
+    // body bytes are left over after every named track's blocks.
+    const remaining = body.length - namedBlocks * UNPACKED_BYTES;
+    if (remaining < 0 || remaining % UNPACKED_BYTES !== 0) {
+      return { error: "file size doesn't match its own block-count table (corrupt file?)" };
+    }
+    order.push([HEADER_TR, remaining / UNPACKED_BYTES]);
 
     const chunks = [bulkMode(P_QY100, true)];
     let pos = 0;
@@ -501,9 +509,23 @@
       header[off + 1] = blocks.length & 0xFF;
       for (const payload of blocks) bodyParts.push(unpackBlock(payload));
     });
-    for (const payload of (byTrack.get(HEADER_TR) || [])) bodyParts.push(unpackBlock(payload));
+    const headerBlocks = byTrack.get(HEADER_TR) || [];
+    for (const payload of headerBlocks) bodyParts.push(unpackBlock(payload));
 
-    return concatBytes([header].concat(bodyParts));
+    const body = concatBytes(bodyParts);
+    // Song header track: disk files only ever use the first 654 of its
+    // 768 bytes (verified against all 3 reference songs); the wire dump's
+    // leftover RAM content past that point is dropped rather than copied
+    // into the disk file. Same caveat as the Python version: unverified
+    // for a header track any size other than the standard 6 blocks, so
+    // left untouched there, and not yet verified for patterns at all.
+    const SONG_HEADER_REAL_LEN = 654;
+    if (kind === "song" && headerBlocks.length === 6) {
+      const tailStart = body.length - headerBlocks.length * UNPACKED_BYTES + SONG_HEADER_REAL_LEN;
+      for (let i = tailStart; i < body.length; i++) body[i] = 0;
+    }
+
+    return concatBytes([header, body]);
   }
 
   // ---- Panel: Q1P/Q1S -> SysEx ----
